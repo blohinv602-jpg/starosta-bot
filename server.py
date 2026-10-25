@@ -81,7 +81,10 @@ class Handler(BaseHTTPRequestHandler):
         query = {k: v[-1] for k, v in urllib.parse.parse_qs(parsed.query).items()}
 
         if path in ("/health", "/api/health"):
-            return self._json(200, {"ok": True, "demo": config.DEV_MODE})
+            return self._json(
+                200,
+                {"ok": True, "demo": config.DEV_MODE, "bot": config.BOT_USERNAME or None},
+            )
 
         if path.startswith("/api/"):
             return self._handle_api(method, path, query)

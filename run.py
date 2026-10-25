@@ -9,6 +9,7 @@ import db
 import scheduler
 import server
 import tgapi
+import tgapi
 
 
 def check() -> int:
@@ -71,6 +72,14 @@ def main() -> int:
         log.warning("BOT_TOKEN не задан: Mini App работает в демо-режиме, бот выключен")
     elif not config.PUBLIC_URL.startswith("https://"):
         log.warning("PUBLIC_URL должен быть https — иначе Telegram не откроет Mini App")
+    else:
+        try:
+            me = tgapi.call("getMe", timeout=15)
+            if me.get("username"):
+                config.BOT_USERNAME = me["username"]
+                log.info("бот: @%s", me["username"])
+        except Exception as exc:
+            log.warning("getMe недоступен, BOT_USERNAME остаётся %r: %s", config.BOT_USERNAME, exc)
 
     bot_handlers.start()
     scheduler.start()
