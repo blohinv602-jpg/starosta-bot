@@ -151,6 +151,9 @@ def run(sql: str, params=()):
 
 
 def init() -> None:
+    import pathlib
+
+    pathlib.Path(config.DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     conn = connect()
     conn.executescript(SCHEMA)
     conn.commit()
