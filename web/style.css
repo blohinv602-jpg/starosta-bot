@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --bg: #0a0a12;
   --bg-soft: #101019;
   --panel: #15151f;
@@ -838,6 +838,7 @@ textarea {
 }
 
 .toast {
+  pointer-events: none;
   position: fixed;
   left: 50%;
   transform: translateX(-50%);

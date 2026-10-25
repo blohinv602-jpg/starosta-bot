@@ -102,10 +102,12 @@ const loaders = {
 async function boot(silent) {
   try {
     state.boot = await api("/bootstrap");
+    state.bootError = null;
     state.mode = state.boot.user && state.boot.user.role === "starosta" ? "starosta" : "student";
     if (!silent) await go(state.route, state.params);
   } catch (error) {
-    toast(error.message || "Не удалось загрузить приложение");
+    state.bootError = error.message || "Ошибка загрузки";
+    state.boot = null;
   }
   render();
 }
@@ -818,7 +820,7 @@ function renderSheet() {
   if (!state.sheet) return "";
   return `
     <div class="sheet-backdrop" data-act="sheet-close">
-      <div class="sheet" onclick="event.stopPropagation()">
+      <div class="sheet">
         <div class="sheet-handle"></div>
         ${sheetBody(state.sheet)}
       </div>
@@ -1128,7 +1130,36 @@ function extraFab() {
   return "";
 }
 
+function viewBootError() {
+  const rawMessage = state.bootError || "";
+  const telegramMissing = !tg || !tg.initData;
+  return `
+    <div class="app">
+      ${topbar()}
+      <div class="screen" style="padding-top:34px;text-align:center">
+        <div class="avatar" style="width:54px;height:54px;border-radius:16px;font-size:20px;margin:0 auto">!</div>
+        <div style="font-size:19px;font-weight:650;margin-top:14px">Не удалось открыть приложение</div>
+        <div class="muted" style="margin-top:10px;line-height:1.6">
+          ${
+            telegramMissing
+              ? "Это приложение работает внутри Telegram. Откройте бота и нажмите «Открыть приложение» — там подпись пользователя подставится автоматически."
+              : "Сервер не принял данные Telegram. Закройте и откройте приложение заново из чата с ботом."
+          }
+        </div>
+        <div class="card" style="margin-top:18px;text-align:left">
+          <div class="muted">Технические детали</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-top:6px;word-break:break-word">${esc(rawMessage)}</div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:16px" data-act="retry-boot">Попробовать снова</button>
+      </div>
+    </div>`;
+}
+
 function render() {
+  if (state.bootError) {
+    app.innerHTML = viewBootError();
+    return;
+  }
   if (!state.boot) {
     app.innerHTML = `<div class="splash">Загружаю…</div>`;
     return;
@@ -1162,20 +1193,30 @@ function openSheet(type, payload = {}) {
 }
 
 async function copyText(text) {
+  const ok = () => toast("Скопировано");
+  const fail = () => toast("Не удалось скопировать");
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await Promise.race([
+        navigator.clipboard.writeText(text),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 1200)),
+      ]);
+      return ok();
+    } catch (e) {}
+  }
   try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(text);
-    } else {
-      const area = document.createElement("textarea");
-      area.value = text;
-      document.body.appendChild(area);
-      area.select();
-      document.execCommand("copy");
-      area.remove();
-    }
-    toast("Скопировано");
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const copied = document.execCommand("copy");
+    area.remove();
+    return copied ? ok() : fail();
   } catch (e) {
-    toast("Не удалось скопировать");
+    return fail();
   }
 }
 
@@ -1192,6 +1233,11 @@ function inviteMessage() {
 
 const actions = {
   close: () => (tg ? tg.close() : null),
+  "retry-boot": () => {
+    state.bootError = null;
+    render();
+    boot();
+  },
   menu: () => openSheet("menu"),
   help: () => openSheet("help"),
   "sheet-close": () => closeSheet(),
@@ -1530,6 +1576,7 @@ const actions = {
 document.addEventListener("click", (event) => {
   const trigger = event.target.closest("[data-act]");
   if (!trigger) return;
+  if (trigger.dataset.act === "sheet-close" && event.target.closest(".sheet")) return;
   const handler = actions[trigger.dataset.act];
   if (!handler) return;
   event.preventDefault();
