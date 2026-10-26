@@ -127,9 +127,13 @@ async function boot(silent) {
   render();
 }
 
+const STAFF_ROUTES = ["home", "students", "settings", "absences", "journal", "reports", "day"];
+
 async function go(route, params = {}) {
+  if (!isStaff() && STAFF_ROUTES.indexOf(route) !== -1) route = "poll";
   state.route = route;
   state.params = params;
+
   render();
   const loader = loaders[route];
   if (!loader) return;
@@ -190,17 +194,23 @@ function topbar() {
     </div>`;
 }
 
+function isStaff() {
+  return Boolean(state.boot && state.boot.user && state.boot.user.role === "starosta");
+}
+
 function demobar(group) {
   if (!group) return "";
   return `
     <div class="demobar">
       <span class="demo-hint"></span>
+      ${isStaff() ? "" : '<button class="link" data-act="own-group">+ Своя группа</button>'}
       <button class="link" data-act="close">Выйти</button>
     </div>`;
 }
 
 
 function roleseg() {
+  if (!isStaff()) return "";
   const starosta = state.mode === "starosta";
   return `
     <div class="roleseg">
@@ -209,6 +219,7 @@ function roleseg() {
       <button class="seg-own" data-act="own-group">+ Своя группа</button>
     </div>`;
 }
+
 
 function tabbar() {
   const starostaTabs = [
@@ -1383,7 +1394,8 @@ function currentView() {
     case "materials":
       return viewMaterials();
     default:
-      return viewHome();
+      return isStaff() ? viewHome() : viewStudentPoll();
+
   }
 }
 
@@ -1518,9 +1530,11 @@ const actions = {
     go(data.go);
   },
   role: async (data) => {
+    if (!isStaff()) return;
     state.mode = data.role;
-    await go("home");
+    await go(data.role === "student" ? "poll" : "home");
   },
+
   "own-group": () => openSheet("own"),
 
   "open-day": (data) => go("day", { date: data.date }),

@@ -100,12 +100,19 @@ class Ctx:
     def require_owner(self) -> dict:
         group = self.require_group()
         member = self.membership()
-        if group["owner_tg_id"] and group["owner_tg_id"] != self.tg_id and member["role"] != "starosta":
+        if member["role"] != "starosta" and group["owner_tg_id"] != self.tg_id:
             raise ApiError("Только староста может менять это", 403)
         return group
 
     def guard_demo(self, group: dict):
         return None
+
+    def require_staff(self) -> dict:
+        group = self.require_group()
+        member = self.membership()
+        if member["role"] != "starosta" and group["owner_tg_id"] != self.tg_id:
+            raise ApiError("Раздел доступен только старосте", 403)
+        return group
 
     def user_row(self) -> dict:
         member = self.membership()
@@ -325,7 +332,7 @@ def bootstrap(ctx: Ctx) -> dict:
 
 
 def home(ctx: Ctx) -> dict:
-    group = ctx.require_group()
+    group = ctx.require_staff()
     now_date = today()
     week_parity = group["parity_override"] or parity_of(now_date)
     day_lessons = lessons_for_date(group["id"], now_date, week_parity)
@@ -361,7 +368,7 @@ def home(ctx: Ctx) -> dict:
 
 
 def day_view(ctx: Ctx, date_str: str) -> dict:
-    group = ctx.require_group()
+    group = ctx.require_staff()
     day = demark_date(date_str)
     week_parity = group["parity_override"] or parity_of(day)
     lessons = lessons_for_date(group["id"], day, week_parity)
@@ -397,7 +404,7 @@ def day_view(ctx: Ctx, date_str: str) -> dict:
 
 
 def students_view(ctx: Ctx) -> dict:
-    group = ctx.require_group()
+    group = ctx.require_staff()
     rows = db.q(
         "SELECT * FROM users WHERE group_id = ? ORDER BY is_active DESC, full_name", (group["id"],)
     )
@@ -450,7 +457,7 @@ def schedule_view(ctx: Ctx) -> dict:
 
 
 def journal_view(ctx: Ctx, month: str) -> dict:
-    group = ctx.require_group()
+    group = ctx.require_staff()
     try:
         year, mon = [int(p) for p in month.split("-")]
         first = dt.date(year, mon, 1)
@@ -475,7 +482,7 @@ def journal_view(ctx: Ctx, month: str) -> dict:
 
 
 def absences_view(ctx: Ctx) -> dict:
-    group = ctx.require_group()
+    group = ctx.require_staff()
     students = db.q(
         "SELECT id, full_name FROM users WHERE group_id = ? AND is_active = 1 ORDER BY full_name",
         (group["id"],),
@@ -963,7 +970,7 @@ def answer_self(ctx: Ctx, body: dict) -> dict:
 
 
 def add_self(ctx: Ctx) -> dict:
-    group = ctx.require_group()
+    group = ctx.require_owner()
     ctx.guard_demo(group)
     member = ctx.user_row()
     db.run("UPDATE users SET role = 'starosta' WHERE id = ?", (member["id"],))
@@ -1089,7 +1096,7 @@ def renew_subscription(ctx: Ctx) -> dict:
 
 
 def send_report(ctx: Ctx, period: str) -> dict:
-    group = ctx.require_group()
+    group = ctx.require_staff()
     content, filename = build_report(group, period)
     if config.BOT_TOKEN and ctx.tg_id > 0:
         try:

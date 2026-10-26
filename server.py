@@ -1,4 +1,4 @@
-import json
+﻿import json
 import logging
 import mimetypes
 import urllib.parse
@@ -100,7 +100,7 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/api/report.xlsx" and method == "GET":
                 ctx = api.Ctx(tg_user)
-                group = ctx.require_group()
+                group = ctx.require_staff()
                 content, filename = api.build_report(group, query.get("period") or "month")
                 return self._bytes(
                     200,
