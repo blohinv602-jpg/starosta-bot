@@ -191,14 +191,14 @@ function topbar() {
 }
 
 function demobar(group) {
-  if (!group || !group.is_demo) return "";
+  if (!group) return "";
   return `
     <div class="demobar">
-      <button class="demo-badge" data-act="demo-info">▶ ДЕМО</button>
-      <span class="demo-hint">Можно нажимать — ничего не сохранится</span>
+      <span class="demo-hint"></span>
       <button class="link" data-act="close">Выйти</button>
     </div>`;
 }
+
 
 function roleseg() {
   const starosta = state.mode === "starosta";
@@ -259,7 +259,7 @@ function groupCard(group) {
       <div class="avatar">${esc(group.initials || initialsOf(group.name))}</div>
       <div class="row-main">
         <div class="group-name">${esc(group.name)}</div>
-        <div class="group-uni">${esc(group.university || "Группа")}${group.is_demo ? " · демо" : ""}</div>
+        <div class="group-uni">${esc(group.university || "Группа")}</div>
       </div>
       <button class="icon-btn" data-act="help">?</button>
       <button class="icon-btn" data-act="tab" data-go="settings">⚙</button>
@@ -531,7 +531,7 @@ function viewSettings() {
       <div class="avatar">${esc(group.initials)}</div>
       <div class="row-main">
         <div class="group-name">${esc(group.name)}</div>
-        <div class="group-uni">${esc(group.university || "Группа")}${group.is_demo ? " · демо" : ""}</div>
+        <div class="group-uni">${esc(group.university || "Группа")}</div>
       </div>
       <button class="btn btn-sm btn-ghost" data-act="edit-group">✎ Изменить</button>
     </div>
@@ -902,7 +902,7 @@ function sheetBody(sheet) {
     return `
       <div class="sheet-head"><div class="sheet-title">Документы</div><button class="icon-btn" data-act="sheet-close">✕</button></div>
       <div class="sheet-sub">Приложение обрабатывает только данные группы: ФИО студентов, расписание и отметки посещаемости. Данные хранятся на сервере сервиса и не передаются третьим лицам.</div>
-      <div class="sub-note">Демо-группа создаётся автоматически и не связана с реальными студентами.</div>
+      
       <button class="btn" style="margin-top:12px" data-act="sheet-close">Закрыть</button>`;
   }
   if (sheet.type === "invite") {
@@ -1038,15 +1038,9 @@ function sheetBody(sheet) {
   if (sheet.type === "welcome") {
     return sheetBody({ type: "own" });
   }
-  if (sheet.type === "demo") {
-    return `
-      <div class="sheet-head"><div class="sheet-title">Демо-режим</div><button class="icon-btn" data-act="sheet-close">✕</button></div>
-      <div class="sheet-sub">Это демонстрационная группа AT-21 с готовыми данными. Кнопки можно нажимать — изменения не сохранятся.</div>
-      <div class="sheet-sub">Чтобы вести настоящую группу, нажмите «+ Своя группа» и создайте свою — там всё сохраняется.</div>
-      <button class="btn btn-primary" data-act="sheet-close">Понятно</button>`;
-  }
   return "";
 }
+
 
 /* ---------------- onboarding ---------------- */
 
@@ -1141,7 +1135,7 @@ function viewWelcome() {
           <div class="field"><label>Ваше ФИО</label><input id="f-join-name" placeholder="Петрова Алиса" /></div>
           <button class="btn" data-act="join-group">Вступить</button>
         </div>
-        <div class="sub-note" style="text-align:center">Есть демо-группа: код DEMO00</div>
+        
       </div>
       ${renderSheet()}
     </div>`;
@@ -1493,7 +1487,7 @@ const actions = {
   support: () => openSheet("support"),
   docs: () => openSheet("docs"),
   "sheet-close": () => closeSheet(),
-  "demo-info": () => openSheet("demo"),
+
 
   tab: (data) => {
     state.sheet = null;

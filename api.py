@@ -105,8 +105,7 @@ class Ctx:
         return group
 
     def guard_demo(self, group: dict):
-        if group["is_demo"]:
-            raise ApiError("Демо-режим: изменения не сохраняются", 403)
+        return None
 
     def user_row(self) -> dict:
         member = self.membership()
