@@ -103,6 +103,8 @@ async function act(fn, successMessage) {
 
 const loaders = {
   home: () => api(state.mode === "student" ? "/me/today" : "/home"),
+  poll: () => api("/me/today"),
+  stats: () => api("/me/stats"),
   students: () => api("/students"),
   schedule: () => api("/schedule"),
   absences: () => api("/absences"),
@@ -209,14 +211,22 @@ function roleseg() {
 }
 
 function tabbar() {
-  const tabs = [
+  const starostaTabs = [
     ["home", "🏠", "Главная"],
     ["students", "👥", "Студенты"],
     ["schedule", "📅", "Расписание"],
     ["settings", "⚙️", "Настройки"],
   ];
+  const studentTabs = [
+    ["poll", "✋", "Опрос"],
+    ["schedule", "📅", "Расписание"],
+    ["announcements", "📢", "Объявления"],
+    ["materials", "📚", "База знаний"],
+    ["stats", "📊", "Статистика"],
+  ];
+  const tabs = state.mode === "student" ? studentTabs : starostaTabs;
   return `
-    <nav class="tabbar">
+    <nav class="tabbar" style="grid-template-columns:repeat(${tabs.length},1fr)">
       ${tabs
         .map(
           ([key, icon, label]) => `
@@ -1139,8 +1149,203 @@ function viewWelcome() {
 
 /* ---------------- render ---------------- */
 
+const ANSWER_TEXT = {
+  present: "Буду на паре",
+  late: "Опаздываю",
+  absent: "Не смогу прийти",
+  all: "Буду на всех парах сегодня",
+};
+
+const STATUS_TEXT = {
+  present: "Был",
+  late: "Опоздал",
+  absent: "Не был",
+  silent: "Не ответил",
+};
+
+function minutesTo(timeStr) {
+  const parts = String(timeStr || "00:00").split(":");
+  const target = Number(parts[0]) * 60 + Number(parts[1] || 0);
+  const now = new Date();
+  return target - (now.getHours() * 60 + now.getMinutes());
+}
+
+function viewStudentPoll() {
+  const data = state.data.poll;
+  if (!data) return skeleton();
+  const lessons = data.lessons || [];
+  if (!lessons.length) {
+    return `
+      <div class="card" style="margin-top:10px">
+        <div class="subject" style="margin-top:0">Сегодня пар нет</div>
+        <div class="time">${esc(data.weekday)} · ${esc(data.parity_label)}</div>
+      </div>`;
+  }
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  const toMin = (value) => Number(String(value).split(":")[0]) * 60 + Number(String(value).split(":")[1] || 0);
+  const current =
+    lessons.find((l) => !l.my_status && toMin(l.start_time) <= nowMin && nowMin <= toMin(l.end_time)) ||
+    lessons.find((l) => !l.my_status && toMin(l.start_time) > nowMin) ||
+    lessons.find((l) => !l.my_status) ||
+    lessons[0];
+  const answered = state.pollAnswered || current.my_status;
+  const minutes = minutesTo(current.start_time);
+  const when =
+    minutes > 0
+      ? "через " + minutes + " мин · " + current.start_time
+      : current.start_time + "–" + current.end_time;
+  const others = lessons.filter((lesson) => lesson.id !== current.id);
+
+  return `
+    <div class="card" style="margin-top:10px">
+      <span class="pill">🔔 Опрос перед парой</span>
+      <div class="subject">${esc(current.subject)}</div>
+      <div class="time">${esc(when)}${current.room ? " · ауд. " + esc(current.room) : ""}</div>
+      ${
+        answered
+          ? `<div style="text-align:center;margin-top:16px">
+              <div class="avatar" style="width:58px;height:58px;border-radius:50%;margin:0 auto;background:rgba(53,208,127,.16);color:var(--green);font-size:26px">✓</div>
+              <div style="font-size:17px;font-weight:650;margin-top:12px">Голос учтён!</div>
+              <div class="muted" style="margin-top:8px;line-height:1.55">
+                ${
+                  answered === "all"
+                    ? "Ты отмечен на всех парах сегодня — до вечера бот не будет присылать опросы. Если планы изменятся, переголосуй здесь на нужной паре."
+                    : "Твой ответ — «" + esc(ANSWER_TEXT[answered] || answered) + "». Староста его уже видит. Опоздал или планы изменились — можно переголосовать."
+                }
+              </div>
+              <button class="btn" style="margin-top:14px" data-act="repoll">Переголосовать</button>
+            </div>`
+          : `<div class="answer-row" style="margin-top:14px">
+              <button class="answer" data-act="me-answer" data-lesson="${current.id}" data-status="present">✅ Буду на паре</button>
+              <button class="answer" data-act="me-answer" data-lesson="${current.id}" data-status="late">⏰ Опаздываю</button>
+              <button class="answer" data-act="me-answer" data-lesson="${current.id}" data-status="absent">❌ Не смогу прийти</button>
+              <button class="answer" data-act="me-answer-all" data-lesson="${current.id}">🗓 Буду на всех парах сегодня${
+                lessons.length > 1 ? ' <span class="muted">эта и ещё ' + (lessons.length - 1) + "</span>" : ""
+              }</button>
+            </div>`
+      }
+    </div>
+    ${
+      others.length
+        ? `<div class="section-title">Ещё пары сегодня</div>
+           <div class="row-list">
+             ${others
+               .map(
+                 (lesson) => `
+               <div class="row-item">
+                 <div class="lesson-time">${esc(lesson.start_time)}</div>
+                 <div class="row-main">
+                   <div class="row-title">${esc(lesson.subject)}</div>
+                   <div class="row-sub">${esc(lesson.kind)}${lesson.room ? " · ауд. " + esc(lesson.room) : ""}</div>
+                 </div>
+                 <span class="pill ${lesson.my_status ? (lesson.my_status === "present" ? "green" : lesson.my_status === "absent" ? "red" : "orange") : "grey"}">
+                   ${lesson.my_status ? esc(STATUS_TEXT[lesson.my_status]) : "—"}
+                 </span>
+               </div>`
+               )
+               .join("")}
+           </div>`
+        : ""
+    }`;
+}
+
+function subjectStatCard(subject, isOpen) {
+  return `
+    <div class="card" style="margin-bottom:9px">
+      <button class="between" style="width:100%;text-align:left" data-act="expand-subject" data-subject="${esc(subject.subject)}">
+        <div class="row-main">
+          <div class="row-title" style="font-size:14px">${esc(subject.subject)}</div>
+          <div class="row-sub">был ${subject.attended} · пропустил ${subject.misses}${
+            subject.details.some((d) => d.excused) ? " (уваж. " + subject.details.filter((d) => d.excused).length + ")" : ""
+          }</div>
+        </div>
+        <span class="chev-r">${isOpen ? "⌃" : "⌄"}</span>
+      </button>
+      <div class="progress"><i style="width:${subject.percent}%"></i></div>
+      ${
+        isOpen
+          ? `<div style="margin-top:10px">
+              ${
+                subject.details.length
+                  ? subject.details
+                      .map(
+                        (detail) => `
+                    <div class="studento">
+                      <div class="row-main">
+                        <div class="row-title" style="font-size:12.5px">${esc(detail.date.split("-").reverse().join("."))} · ${esc(detail.time)}</div>
+                        <div class="row-sub">${detail.excused ? "уважительная причина" : ""}</div>
+                      </div>
+                      <span class="pill ${detail.status === "absent" ? "red" : detail.status === "late" ? "orange" : "grey"}">
+                        ${esc(STATUS_TEXT[detail.status])}
+                      </span>
+                    </div>`
+                      )
+                      .join("")
+                  : '<div class="muted">Пропусков нет</div>'
+              }
+            </div>`
+          : ""
+      }
+    </div>`;
+}
+
+function viewStudentStats() {
+  const data = state.data.stats;
+  if (!data) return skeleton();
+  if (!data.total) {
+    return `
+      <div style="margin:6px 2px 12px">
+        <div style="font-size:19px;font-weight:650">Моя статистика</div>
+        <div class="muted">Посещаемость по данным опросов</div>
+      </div>
+      <div class="empty">Пока нет отметок.<br />Ответьте на первый опрос перед парой — статистика появится здесь.</div>`;
+  }
+
+  const total = data.total || 1;
+  const green = (data.attended / total) * 100;
+  const red = (data.without_reason / total) * 100;
+  const blue = (data.excused / total) * 100;
+  const verdict =
+    data.percent >= 85 ? ["Отлично", "green"] : data.percent >= 60 ? ["Есть пропуски", "orange"] : ["Много пропусков", "red"];
+  return `
+    <div style="margin:6px 2px 12px">
+      <div style="font-size:19px;font-weight:650">Моя статистика</div>
+      <div class="muted">Посещаемость по данным опросов</div>
+    </div>
+    <div class="card">
+      <div class="between">
+        <div class="row-main">
+          <div class="muted">Был на паре в этом семестре</div>
+          <div style="font-size:21px;font-weight:700;margin-top:4px">${data.attended} из ${data.total} пар</div>
+        </div>
+        <span class="pill ${verdict[1]}">${verdict[0]}</span>
+      </div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:8px">
+        Пропусков всего ${data.misses}, из них по уважительной причине — ${data.excused}
+      </div>
+      <div style="display:flex;gap:2px;height:6px;margin-top:12px">
+        <i style="width:${green}%;background:var(--green);border-radius:99px"></i>
+        <i style="width:${red}%;background:var(--red);border-radius:99px"></i>
+        <i style="width:${blue}%;background:#5aa9ff;border-radius:99px"></i>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--green)"></i>был ${data.attended}</span>
+        <span><i style="background:var(--red)"></i>без причины ${data.without_reason}</span>
+        <span><i style="background:#5aa9ff"></i>по уважительной ${data.excused}</span>
+      </div>
+    </div>
+    <div class="section-title">По предметам</div>
+    <div class="muted" style="margin:-4px 2px 10px">Нажмите на предмет, чтобы увидеть, когда именно пропустили или опоздали.</div>
+    ${(data.subjects || []).map((subject) => subjectStatCard(subject, state.expandedSubject === subject.subject)).join("")}
+  `;
+}
+
 function currentView() {
   switch (state.route) {
+    case "poll":
+      return viewStudentPoll();
+    case "stats":
+      return viewStudentStats();
     case "students":
       return viewStudents();
     case "schedule":
@@ -1608,16 +1813,51 @@ const actions = {
 
   "me-answer": (data) =>
     act(async () => {
-      state.data.home = await api("/me/answer", {
-        method: "POST",
-        body: {
-          date: state.data.home.date,
-          lesson_id: Number(data.lesson),
-          status: data.status,
-        },
-      });
+      const source = state.data.poll || state.data.home;
+      if (!source) throw new Error("Нет данных о паре");
+      try {
+        await api("/me/answer", {
+          method: "POST",
+          body: {
+            date: source.date,
+            lesson_id: Number(data.lesson),
+            status: data.status,
+          },
+        });
+        state.data.poll = await api("/me/today");
+      } catch (error) {
+        if (!/^Демо/i.test(error.message || "")) throw error;
+        toast("🔒 В демо это не сохраняется", {
+          action: { label: "Создать группу", act: "own-group" },
+        });
+      }
+      state.pollAnswered = data.status;
       render();
-    }, "Ответ записан"),
+    }),
+
+  "me-answer-all": () =>
+    act(async () => {
+      try {
+        state.data.poll = await api("/me/answer-all", { method: "POST" });
+      } catch (error) {
+        if (!/^Демо/i.test(error.message || "")) throw error;
+        toast("🔒 В демо это не сохраняется", {
+          action: { label: "Создать группу", act: "own-group" },
+        });
+      }
+      state.pollAnswered = "all";
+      render();
+    }),
+
+  repoll: () => {
+    state.pollAnswered = null;
+    render();
+  },
+
+  "expand-subject": (data) => {
+    state.expandedSubject = state.expandedSubject === data.subject ? null : data.subject;
+    render();
+  },
 };
 
 document.addEventListener("click", (event) => {

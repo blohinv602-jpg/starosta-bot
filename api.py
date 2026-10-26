@@ -617,6 +617,89 @@ def my_day(ctx: Ctx) -> dict:
     }
 
 
+def my_stats(ctx: Ctx) -> dict:
+    group = ctx.require_group()
+    member = ctx.user_row()
+    rows = db.q(
+        "SELECT m.date, m.status, m.excused, l.subject, l.start_time "
+        "FROM marks m JOIN lessons l ON l.id = m.lesson_id "
+        "WHERE m.group_id = ? AND m.user_id = ? ORDER BY m.date DESC, l.start_time",
+        (group["id"], member["id"]),
+    )
+    totals = {"present": 0, "late": 0, "absent": 0, "silent": 0}
+    excused_total = 0
+    subjects = {}
+    for row in rows:
+        status = row["status"] if row["status"] in totals else "silent"
+        totals[status] += 1
+        if row["excused"]:
+            excused_total += 1
+        subject = row["subject"] or "Без предмета"
+        item = subjects.get(subject)
+        if item is None:
+            item = {
+                "subject": subject,
+                "total": 0,
+                "present": 0,
+                "late": 0,
+                "absent": 0,
+                "silent": 0,
+                "details": [],
+            }
+            subjects[subject] = item
+        item["total"] += 1
+        item[status] += 1
+        if status != "present" or row["excused"]:
+            item["details"].append(
+                {
+                    "date": row["date"],
+                    "time": row["start_time"],
+                    "status": status,
+                    "excused": bool(row["excused"]),
+                }
+            )
+
+    subject_list = []
+    for item in subjects.values():
+        attended = item["present"] + item["late"]
+        misses = item["absent"] + item["silent"]
+        item["attended"] = attended
+        item["misses"] = misses
+        item["percent"] = round(attended * 100 / item["total"]) if item["total"] else 0
+        subject_list.append(item)
+    subject_list.sort(key=lambda s: (-s["misses"], s["subject"]))
+
+    attended_total = totals["present"] + totals["late"]
+    total = sum(totals.values())
+    return {
+        "name": member["full_name"] or ctx.tg_name,
+        "total": total,
+        "attended": attended_total,
+        "misses": totals["absent"] + totals["silent"],
+        "without_reason": totals["absent"] + totals["silent"] - excused_total,
+        "excused": excused_total,
+        "percent": round(attended_total * 100 / total) if total else 0,
+        "subjects": subject_list,
+    }
+
+
+def answer_all_today(ctx: Ctx) -> dict:
+    group = ctx.require_group()
+    ctx.guard_demo(group)
+    member = ctx.user_row()
+    now_date = today()
+    parity = group["parity_override"] or parity_of(now_date)
+    lessons = lessons_for_date(group["id"], now_date, parity)
+    for lesson in lessons:
+        db.run(
+            "INSERT INTO marks (group_id, lesson_id, date, user_id, status, source, excused, updated_at) "
+            "VALUES (?, ?, ?, ?, 'present', 'self', 0, ?) "
+            "ON CONFLICT(date, lesson_id, user_id) DO UPDATE SET status = 'present', updated_at = excluded.updated_at",
+            (group["id"], lesson["id"], now_date.isoformat(), member["id"], db.now()),
+        )
+    return my_day(ctx)
+
+
 def parse_body(raw: bytes) -> dict:
     if not raw:
         return {}
@@ -1111,6 +1194,10 @@ def route(ctx: Ctx, method: str, path: str, query: dict, body: dict, raw: bytes)
         return my_day(ctx)
     if path == "/api/me/answer" and method == "POST":
         return answer_self(ctx, body)
+    if path == "/api/me/stats" and method == "GET":
+        return my_stats(ctx)
+    if path == "/api/me/answer-all" and method == "POST":
+        return answer_all_today(ctx)
     if path == "/api/report/send" and method == "POST":
         return send_report(ctx, body.get("period") or "month")
     raise ApiError("Не найдено", 404)
