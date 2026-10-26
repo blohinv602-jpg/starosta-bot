@@ -1115,3 +1115,108 @@ textarea {
   border-radius: 50%;
   display: inline-block;
 }
+
+.daybar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.dtable-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.dtable {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-size: 11.5px;
+}
+
+.dtable th,
+.dtable td {
+  padding: 6px 4px;
+  text-align: center;
+}
+
+.dtable thead th {
+  background: var(--panel-2);
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.dtable .dname {
+  position: sticky;
+  left: 0;
+  background: var(--panel);
+  text-align: left;
+  padding-left: 10px;
+  min-width: 116px;
+  max-width: 116px;
+  font-size: 11.5px;
+  font-weight: 500;
+  z-index: 1;
+}
+
+.dtable thead .dname {
+  background: var(--panel-2);
+  z-index: 2;
+}
+
+.dt-time {
+  font-size: 11px;
+  color: var(--text);
+}
+
+.dt-sub {
+  font-size: 10px;
+  color: var(--muted-2);
+  margin-top: 2px;
+}
+
+.dt-count {
+  font-size: 9.5px;
+  color: var(--muted-2);
+  margin-top: 2px;
+}
+
+.dcell {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--panel-3);
+  color: var(--muted-2);
+  font-size: 13px;
+  display: grid;
+  place-items: center;
+}
+
+.dcell.present {
+  background: rgba(53, 208, 127, 0.16);
+  color: var(--green);
+}
+
+.dcell.late {
+  background: rgba(247, 169, 75, 0.16);
+  color: var(--orange);
+}
+
+.dcell.absent {
+  background: rgba(242, 88, 91, 0.16);
+  color: var(--red);
+}
+
+.dcell.excused {
+  background: rgba(90, 169, 255, 0.18);
+  color: #5aa9ff;
+}
+
+.dcell.empty {
+  background: transparent;
+  border: 1px dashed var(--line);
+}

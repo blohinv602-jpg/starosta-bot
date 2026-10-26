@@ -718,72 +718,96 @@ function viewJournal() {
     <div class="sub-note">Точкой отмечены дни с отметками. Любой прошедший день можно открыть и отметить пары из расписания.</div>`;
 }
 
+function shiftDate(iso, delta) {
+  const parts = String(iso).split("-").map(Number);
+  const date = new Date(parts[0], parts[1] - 1, parts[2] + delta);
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return date.getFullYear() + "-" + m + "-" + d;
+}
+
+function shortSubject(subject) {
+  const words = String(subject || "").split(/\s+/);
+  let text = words[0] || "";
+  if (text.length < 8 && words[1]) text += " " + words[1];
+  return text.length > 14 ? text.slice(0, 13) + "…" : text;
+}
+
+function cellGlyph(status, excused) {
+  if (excused) return "У";
+  if (status === "present") return "✓";
+  if (status === "late") return "⏰";
+  if (status === "absent") return "—";
+  return "";
+}
+
 function viewDay() {
   const data = state.data.day;
   if (!data) return skeleton();
-  const selected = state.params.lessonId || (data.lessons[0] && data.lessons[0].id);
-  const lesson = data.lessons.find((l) => String(l.id) === String(selected));
-  const marks = (lesson && data.marks[String(lesson.id)]) || {};
+  const lessons = data.lessons || [];
+  const students = data.students || [];
   const dateLabel = data.date.split("-").reverse().join(".");
+  const header = `
+    <div class="daybar">
+      <button class="icon-btn" data-act="day-nav" data-delta="-1">‹</button>
+      <div style="text-align:center;flex:1">
+        <div style="font-size:16px;font-weight:650">${data.is_today ? "Сегодня" : dateLabel}</div>
+        <div class="muted">${esc(data.weekday.toLowerCase())}${data.is_today ? " · " + dateLabel : ""} · ${esc(data.parity_label)}</div>
+      </div>
+      <button class="icon-btn" data-act="day-nav" data-delta="1">›</button>
+    </div>`;
+
+  if (!lessons.length) {
+    return `
+      <button class="ghost-link" data-act="tab" data-go="journal">‹ Журнал</button>
+      ${header}
+      <div class="card" style="margin-top:12px">
+        <div class="muted" style="text-align:center;padding:14px 0">В этот день пар с опросом нет</div>
+      </div>`;
+  }
+
+  const rows = students
+    .map((student) => {
+      const cells = lessons
+        .map((lesson) => {
+          const mark = (data.marks[String(lesson.id)] || {})[String(student.id)];
+          const status = mark ? mark.status : "";
+          const excused = Boolean(mark && mark.excused);
+          const cls = excused ? "excused" : status || "empty";
+          return `<td><button class="dcell ${cls}" data-act="day-cell" data-lesson="${lesson.id}" data-user="${student.id}" data-current="${status}">${cellGlyph(status, excused)}</button></td>`;
+        })
+        .join("");
+      return `<tr><th class="dname">${esc(student.name)}</th>${cells}</tr>`;
+    })
+    .join("");
+
   return `
     <button class="ghost-link" data-act="tab" data-go="journal">‹ Журнал</button>
-    <div style="margin:8px 2px 4px">
-      <div style="font-size:19px;font-weight:650">${dateLabel} · ${esc(data.weekday)}</div>
-      <div class="muted">${esc(data.parity_label)}${data.is_today ? " · сегодня" : ""}</div>
-    </div>
-    ${
-      data.lessons.length
-        ? `<div class="chips">
-            ${data.lessons
+    ${header}
+    <div class="dtable-wrap">
+      <table class="dtable">
+        <thead>
+          <tr>
+            <th class="dname">Студент</th>
+            ${lessons
               .map(
-                (item) =>
-                  `<button class="chip ${String(item.id) === String(selected) ? "active" : ""}" data-act="pick-lesson" data-id="${item.id}">
-                    ${esc(item.start_time)} ${esc(item.subject.split(" ").slice(0, 2).join(" "))}
-                  </button>`
+                (lesson) => `
+              <th>
+                <div class="dt-time">${esc(lesson.start_time)}</div>
+                <div class="dt-sub">${esc(shortSubject(lesson.subject))}</div>
+                <div class="dt-count">${lesson.stats.present}/${lesson.stats.total}</div>
+              </th>`
               )
               .join("")}
-          </div>
-          <div class="card">
-            <div class="between">
-              <div>
-                <div style="font-weight:650;font-size:14.5px">${esc(lesson.subject)}</div>
-                <div class="muted" style="margin-top:2px">${esc(lesson.start_time)}–${esc(lesson.end_time)} · ${esc(lesson.kind)}${lesson.room ? " · ауд. " + esc(lesson.room) : ""}</div>
-              </div>
-              <button class="btn btn-sm" data-act="mark-all" data-lesson="${lesson.id}">Все на паре</button>
-            </div>
-            <div style="margin-top:10px">
-              ${data.students
-                .map((student) => {
-                  const mark = marks[String(student.id)];
-                  const status = mark ? mark.status : "";
-                  return `
-                <div class="studento">
-                  <div class="avatar sm ghost">${esc(student.initials)}</div>
-                  <div class="row-main">
-                    <div class="row-title" style="font-size:13px">${esc(student.name)}</div>
-                    ${mark && mark.excused ? '<div class="row-sub">уважительная</div>' : ""}
-                  </div>
-                  <div class="mark-btns">
-                    ${[
-                      ["present", "✓"],
-                      ["late", "⏰"],
-                      ["absent", "✕"],
-                      ["silent", "—"],
-                    ]
-                      .map(
-                        ([key, glyph]) =>
-                          `<button class="mb ${status === key ? "on " + key : ""}" data-act="mark" data-lesson="${lesson.id}" data-user="${student.id}" data-status="${key}" title="${key}">${glyph}</button>`
-                      )
-                      .join("")}
-                  </div>
-                </div>`;
-                })
-                .join("")}
-            </div>
-          </div>`
-        : `<div class="card" style="margin-top:14px"><div class="muted">В этот день пар нет.</div></div>`
-    }`;
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <div class="sub-note">Нажмите на ячейку, чтобы сменить отметку: ✓ был · ⏰ опоздал · — не был · пусто — молчит.</div>
+    <button class="btn" style="margin-top:12px" data-act="mark-all" data-lesson="${lessons[0].id}">Отметить всех на первой паре</button>`;
 }
+
 
 function viewAnnouncements() {
   const data = state.data.announcements;
@@ -1500,6 +1524,29 @@ const actions = {
   "own-group": () => openSheet("own"),
 
   "open-day": (data) => go("day", { date: data.date }),
+  "day-nav": (data) => {
+    const current = state.data.day ? state.data.day.date : new Date().toISOString().slice(0, 10);
+    go("day", { date: shiftDate(current, Number(data.delta)) });
+  },
+  "day-cell": (data) =>
+    act(async () => {
+      const order = ["", "present", "late", "absent"];
+      const current = data.current || "";
+      const index = order.indexOf(current);
+      const next = order[(index + 1) % order.length];
+      const result = await api("/marks", {
+        method: "POST",
+        body: {
+          date: state.data.day.date,
+          lesson_id: Number(data.lesson),
+          user_id: Number(data.user),
+          status: next,
+        },
+      });
+      state.data.day = result;
+      render();
+    }),
+
   "pick-lesson": (data) => {
     state.params.lessonId = data.id;
     render();
