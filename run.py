@@ -1,4 +1,5 @@
 import logging
+import os
 import pathlib
 import re
 import sys
@@ -8,7 +9,6 @@ import config
 import db
 import scheduler
 import server
-import tgapi
 import tgapi
 
 
@@ -65,8 +65,11 @@ def main() -> int:
 
     db.init()
     config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    demo_id = db.seed_demo()
-    log.info("demo group ready: id=%s code=DEMO00", demo_id)
+    if os.getenv("MAINT") == "1":
+        import maintenance
+
+        maintenance.run()
+        log.info("maintenance finished")
 
     if not config.BOT_TOKEN:
         log.warning("BOT_TOKEN не задан: Mini App работает в демо-режиме, бот выключен")
