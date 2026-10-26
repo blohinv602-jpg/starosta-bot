@@ -115,6 +115,31 @@ CREATE TABLE IF NOT EXISTS materials (
 CREATE INDEX IF NOT EXISTS idx_marks_group_date ON marks (group_id, date);
 CREATE INDEX IF NOT EXISTS idx_lessons_group ON lessons (group_id, weekday);
 CREATE INDEX IF NOT EXISTS idx_users_group ON users (group_id);
+
+CREATE TABLE IF NOT EXISTS lesson_changes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    lesson_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    new_start TEXT NOT NULL DEFAULT '',
+    new_end TEXT NOT NULL DEFAULT '',
+    new_room TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    UNIQUE (lesson_id, date)
+);
+
+CREATE TABLE IF NOT EXISTS homework (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    lesson_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    body TEXT NOT NULL,
+    author TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_homework_lesson ON homework (lesson_id, date);
 """
 
 _local = threading.local()
@@ -156,6 +181,9 @@ def init() -> None:
     pathlib.Path(config.DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     conn = connect()
     conn.executescript(SCHEMA)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(lessons)")}
+    if "note" not in columns:
+        conn.execute("ALTER TABLE lessons ADD COLUMN note TEXT NOT NULL DEFAULT ''")
     conn.commit()
 
 

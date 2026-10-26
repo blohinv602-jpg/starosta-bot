@@ -706,6 +706,114 @@ def answer_all_today(ctx: Ctx) -> dict:
     return my_day(ctx)
 
 
+def lesson_day(ctx: Ctx, date_str: str, lesson_id: int) -> dict:
+    group = ctx.require_group()
+    lesson = db.q1("SELECT * FROM lessons WHERE id = ? AND group_id = ?", (lesson_id, group["id"]))
+    if not lesson:
+        raise ApiError("Пара не найдена", 404)
+    day = demark_date(date_str)
+    change = db.q1(
+        "SELECT * FROM lesson_changes WHERE lesson_id = ? AND date = ?",
+        (lesson_id, date_str),
+    )
+    homework = db.q(
+        "SELECT * FROM homework WHERE lesson_id = ? AND date = ? ORDER BY id DESC",
+        (lesson_id, date_str),
+    )
+    dates = []
+    cursor = day
+    while len(dates) < 6:
+        if cursor.isoweekday() == int(lesson["weekday"]):
+            dates.append(cursor.isoformat())
+        cursor += dt.timedelta(days=1)
+    if day.isoformat() not in dates:
+        dates.insert(0, day.isoformat())
+    payload = dict(lesson)
+    payload["note"] = lesson["note"] or ""
+    if change:
+        payload["cancelled"] = change["kind"] == "cancel"
+        payload["move"] = {
+            "start": change["new_start"],
+            "end": change["new_end"],
+            "room": change["new_room"],
+        }
+    else:
+        payload["cancelled"] = False
+        payload["move"] = None
+    return {
+        "date": date_str,
+        "weekday": WEEKDAYS[day.weekday()],
+        "lesson": payload,
+        "dates": dates,
+        "homework": db.all_dicts(homework),
+        "can_edit": is_staff(ctx),
+    }
+
+
+def is_staff(ctx: Ctx) -> bool:
+    member = ctx.membership()
+    if not member:
+        return False
+    group = db.q1("SELECT owner_tg_id FROM groups WHERE id = ?", (member["group_id"],))
+    return bool(
+        member["role"] == "starosta"
+        or (group and int(group["owner_tg_id"] or 0) == ctx.tg_id)
+    )
+
+
+def set_lesson_change(ctx: Ctx, body: dict) -> dict:
+    group = ctx.require_owner()
+    date_str = _require(body.get("date"), "Дата")
+    lesson_id = int(body.get("lesson_id") or 0)
+    kind = body.get("kind") or "cancel"
+    if kind not in ("cancel", "move", "restore"):
+        raise ApiError("Некорректное действие")
+    if kind == "restore":
+        db.run(
+            "DELETE FROM lesson_changes WHERE lesson_id = ? AND date = ?", (lesson_id, date_str)
+        )
+    else:
+        db.run(
+            "INSERT INTO lesson_changes (group_id, lesson_id, date, kind, new_start, new_end, new_room, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(lesson_id, date) DO UPDATE SET kind = excluded.kind, "
+            "new_start = excluded.new_start, new_end = excluded.new_end, new_room = excluded.new_room",
+            (
+                group["id"],
+                lesson_id,
+                date_str,
+                kind,
+                (body.get("new_start") or "")[:5],
+                (body.get("new_end") or "")[:5],
+                (body.get("new_room") or "")[:32],
+                db.now(),
+            ),
+        )
+    return lesson_day(ctx, date_str, lesson_id)
+
+
+def add_homework(ctx: Ctx, body: dict) -> dict:
+    group = ctx.require_owner()
+    date_str = _require(body.get("date"), "Дата")
+    lesson_id = int(body.get("lesson_id") or 0)
+    text = _require(body.get("body"), "Что задали")
+    member = ctx.user_row()
+    db.run(
+        "INSERT INTO homework (group_id, lesson_id, date, body, author, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (group["id"], lesson_id, date_str, text[:1000], member["full_name"] or "", db.now()),
+    )
+    return lesson_day(ctx, date_str, lesson_id)
+
+
+def delete_homework(ctx: Ctx, item_id: int) -> dict:
+    group = ctx.require_owner()
+    row = db.q1("SELECT * FROM homework WHERE id = ? AND group_id = ?", (item_id, group["id"]))
+    if not row:
+        raise ApiError("Домашнее задание не найдено", 404)
+    db.run("DELETE FROM homework WHERE id = ?", (item_id,))
+    return lesson_day(ctx, row["date"], int(row["lesson_id"]))
+
+
 def parse_body(raw: bytes) -> dict:
     if not raw:
         return {}
@@ -855,8 +963,8 @@ def add_lesson(ctx: Ctx, body: dict) -> dict:
     if kind not in KINDS:
         kind = "Лек"
     db.run(
-        "INSERT INTO lessons (group_id, weekday, parity, start_time, end_time, subject, kind, room, teacher, has_hw, position) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO lessons (group_id, weekday, parity, start_time, end_time, subject, kind, room, teacher, has_hw, position, note) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             group["id"],
             weekday,
@@ -869,6 +977,7 @@ def add_lesson(ctx: Ctx, body: dict) -> dict:
             (body.get("teacher") or "")[:60],
             1 if body.get("has_hw") else 0,
             0,
+            (body.get("note") or "")[:300],
         ),
     )
     return schedule_view(ctx)
@@ -882,7 +991,7 @@ def update_lesson(ctx: Ctx, lesson_id: int, body: dict) -> dict:
         raise ApiError("Пара не найдена", 404)
     fields = []
     params = []
-    for key in ("start_time", "end_time", "subject", "kind", "room", "teacher", "parity"):
+    for key in ("start_time", "end_time", "subject", "kind", "room", "teacher", "parity", "note"):
         if key in body and body[key] not in (None, ""):
             fields.append(f"{key} = ?")
             params.append(str(body[key])[:120])
@@ -1176,6 +1285,19 @@ def route(ctx: Ctx, method: str, path: str, query: dict, body: dict, raw: bytes)
         return update_lesson(ctx, int(match.group(1)), body)
     if match and method == "DELETE":
         return delete_lesson(ctx, int(match.group(1)))
+    if path == "/api/lesson" and method == "GET":
+        return lesson_day(
+            ctx,
+            query.get("date") or today().isoformat(),
+            int(query.get("id") or 0),
+        )
+    if path == "/api/lesson/change" and method == "POST":
+        return set_lesson_change(ctx, body)
+    if path == "/api/homework" and method == "POST":
+        return add_homework(ctx, body)
+    homework_match = re.fullmatch(r"/api/homework/(\d+)", path)
+    if homework_match and method == "DELETE":
+        return delete_homework(ctx, int(homework_match.group(1)))
     if path == "/api/journal" and method == "GET":
         return journal_view(ctx, query.get("month") or today().strftime("%Y-%m"))
     if path == "/api/absences" and method == "GET":

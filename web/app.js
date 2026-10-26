@@ -468,7 +468,7 @@ function lessonRow(lesson, editable) {
       ? ""
       : `<span class="pill grey">${lesson.parity === "num" ? "Числитель" : "Знаменатель"}</span>`;
   return `
-    <button class="lesson" ${editable ? `data-act="edit-lesson" data-id="${lesson.id}"` : ""}>
+    <button class="lesson" ${editable ? `data-act="open-lesson" data-id="${lesson.id}"` : ""}>
       <div class="lesson-time">${esc(lesson.start_time)}<br />${esc(lesson.end_time)}</div>
       <div class="lesson-body">
         <div class="lesson-subject">${esc(lesson.subject)}</div>
@@ -727,6 +727,40 @@ function viewJournal() {
       <div class="cal-grid">${cells.join("")}</div>
     </div>
     <div class="sub-note">Точкой отмечены дни с отметками. Любой прошедший день можно открыть и отметить пары из расписания.</div>`;
+}
+
+function isoOf(date) {
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return date.getFullYear() + "-" + m + "-" + d;
+}
+
+function nextDateForWeekday(weekday) {
+  const now = new Date();
+  const target = Number(weekday) || 1;
+  const current = now.getDay() === 0 ? 7 : now.getDay();
+  let delta = target - current;
+  if (delta < 0) delta += 7;
+  return isoOf(new Date(now.getFullYear(), now.getMonth(), now.getDate() + delta));
+}
+
+function dateChipLabel(iso) {
+  if (iso === isoOf(new Date())) return "Сегодня";
+  const parts = iso.split("-").map(Number);
+  const date = new Date(parts[0], parts[1] - 1, parts[2]);
+  const wd = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"][date.getDay()];
+  const months = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+  return wd + ", " + date.getDate() + " " + months[date.getMonth()];
+}
+
+function findLessonById(id) {
+  const days = (state.data.schedule && state.data.schedule.days) || [];
+  for (const day of days) {
+    for (const lesson of day.lessons) {
+      if (String(lesson.id) === String(id)) return lesson;
+    }
+  }
+  return null;
 }
 
 function shiftDate(iso, delta) {
@@ -1006,7 +1040,84 @@ function sheetBody(sheet) {
       <div class="field"><label>Конец</label><input id="f-end" type="date" value="${esc(semester.ends || "")}" /></div>
       <button class="btn btn-primary" data-act="save-semester">Сохранить</button>`;
   }
+  if (sheet.type === "lesson-day") {
+    const day = state.data.lessonDay;
+    if (!day) {
+      return `
+        <div class="sheet-head"><div class="sheet-title">Пара</div><button class="icon-btn" data-act="sheet-close">✕</button></div>
+        <div class="muted">Загружаю…</div>`;
+    }
+    const lesson = day.lesson;
+    const homework = day.homework || [];
+    return `
+      <div class="sheet-head">
+        <div class="sheet-title">${esc(lesson.subject)}</div>
+        <button class="icon-btn" data-act="sheet-close">✕</button>
+      </div>
+      <div class="sheet-sub">${esc(day.weekday)} · ${esc(lesson.start_time)}–${esc(lesson.end_time)}${
+        lesson.room ? " · ауд. " + esc(lesson.room) : ""
+      }</div>
+      <div class="chips">
+        ${(day.dates || [])
+          .map(
+            (value) =>
+              `<button class="chip ${value === day.date ? "active" : ""}" data-act="lesson-date" data-date="${value}">${dateChipLabel(value)}</button>`
+          )
+          .join("")}
+      </div>
+      ${
+        lesson.cancelled
+          ? '<div class="card" style="border-color:rgba(242,88,91,.45);margin-top:8px"><div style="color:var(--red);font-size:13px">Пара отменена на этот день</div></div>'
+          : ""
+      }
+      <div class="card" style="margin-top:8px">
+        <div class="row-sub">По расписанию</div>
+        <div style="font-size:13.5px;margin-top:2px">${esc(lesson.start_time)}–${esc(lesson.end_time)}${
+          lesson.room ? " · ауд. " + esc(lesson.room) : ""
+        }</div>
+        ${lesson.note ? `<div class="muted" style="margin-top:6px">${esc(lesson.note)}</div>` : ""}
+      </div>
+      <div class="card">
+        <div class="row-sub">Домашнее задание · ${homework.length}</div>
+        ${
+          homework.length
+            ? homework
+                .map(
+                  (item) => `
+          <div class="studento">
+            <div class="row-main">
+              <div class="row-title" style="font-size:13px">${esc(item.body)}</div>
+              <div class="row-sub">${esc(item.author || "Староста")}</div>
+            </div>
+            ${day.can_edit ? `<button class="mb" data-act="del-homework" data-id="${item.id}">🗑</button>` : ""}
+          </div>`
+                )
+                .join("")
+            : '<div class="muted" style="margin-top:6px">Пока не задано</div>'
+        }
+        ${
+          day.can_edit
+            ? `<input id="f-hw" placeholder="Что задали? Например: стр. 45, №1–10" style="margin-top:10px" />
+               <button class="btn btn-primary" style="margin-top:8px" data-act="add-homework">Добавить ДЗ</button>`
+            : ""
+        }
+      </div>
+      ${
+        day.can_edit
+          ? `<div class="btn-row" style="margin-top:10px">
+              ${
+                lesson.cancelled
+                  ? '<button class="btn" data-act="lesson-restore">Вернуть пару</button>'
+                  : '<button class="btn btn-danger" data-act="lesson-cancel">Отменить пару</button>'
+              }
+              <button class="btn" data-act="lesson-edit">Изменить пару</button>
+            </div>
+            <div class="sub-note">Касается только выбранного дня — расписание на другие недели не меняется.</div>`
+          : ""
+      }`;
+  }
   if (sheet.type === "lesson") {
+
     const lesson = sheet.lesson || {};
     return `
       <div class="sheet-head"><div class="sheet-title">${lesson.id ? "Изменить пару" : "Новая пара"}</div><button class="icon-btn" data-act="sheet-close">✕</button></div>
@@ -1593,6 +1704,60 @@ const actions = {
     });
     if (found) openSheet("lesson", { lesson: found });
   },
+  "open-lesson": (data) =>
+    act(async () => {
+      const lesson = findLessonById(data.id);
+      if (!lesson) throw new Error("Пара не найдена");
+      const base = nextDateForWeekday(lesson.weekday);
+      state.data.lessonDay = await api("/lesson?date=" + base + "&id=" + data.id);
+      state.sheet = { type: "lesson-day", id: data.id };
+      render();
+    }),
+  "lesson-date": (data) =>
+    act(async () => {
+      state.data.lessonDay = await api("/lesson?date=" + data.date + "&id=" + state.sheet.id);
+      render();
+    }),
+  "lesson-cancel": () =>
+    act(async () => {
+      state.data.lessonDay = await api("/lesson/change", {
+        method: "POST",
+        body: { date: state.data.lessonDay.date, lesson_id: state.sheet.id, kind: "cancel" },
+      });
+      render();
+    }, "Пара отменена"),
+  "lesson-restore": () =>
+    act(async () => {
+      state.data.lessonDay = await api("/lesson/change", {
+        method: "POST",
+        body: { date: state.data.lessonDay.date, lesson_id: state.sheet.id, kind: "restore" },
+      });
+      render();
+    }, "Пара возвращена"),
+  "add-homework": () =>
+    act(async () => {
+      const body = input("f-hw");
+      if (!body) throw new Error("Напишите, что задали");
+      state.data.lessonDay = await api("/homework", {
+        method: "POST",
+        body: {
+          date: state.data.lessonDay.date,
+          lesson_id: state.sheet.id,
+          body,
+        },
+      });
+      render();
+    }, "ДЗ добавлено"),
+  "del-homework": (data) =>
+    act(async () => {
+      state.data.lessonDay = await api("/homework/" + data.id, { method: "DELETE" });
+      render();
+    }),
+  "lesson-edit": () => {
+    const lesson = findLessonById(state.sheet ? state.sheet.id : null);
+    if (lesson) openSheet("lesson", { lesson });
+  },
+
   "add-ann": () => openSheet("announcement"),
   "add-material": () => openSheet("material"),
 
