@@ -1068,3 +1068,28 @@ textarea {
   margin: 8px 2px 0;
   line-height: 1.55;
 }
+
+.toast {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: left;
+}
+
+.toast-action {
+  pointer-events: auto;
+  color: var(--accent);
+  font-weight: 650;
+  font-size: 12.5px;
+  white-space: nowrap;
+  padding: 2px 0;
+}
+
+.app-footer {
+  text-align: center;
+  color: var(--muted-2);
+  font-size: 11px;
+  margin: 22px 0 6px;
+  line-height: 1.6;
+}

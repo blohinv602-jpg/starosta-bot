@@ -38,13 +38,22 @@ const esc = (value) =>
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
 
-function toast(message) {
+function toast(message, options = {}) {
   document.querySelectorAll(".toast").forEach((n) => n.remove());
   const node = document.createElement("div");
   node.className = "toast";
-  node.textContent = message;
+  const text = document.createElement("span");
+  text.textContent = message;
+  node.appendChild(text);
+  if (options.action) {
+    const button = document.createElement("button");
+    button.className = "toast-action";
+    button.textContent = options.action.label;
+    button.dataset.act = options.action.act;
+    node.appendChild(button);
+  }
   document.body.appendChild(node);
-  setTimeout(() => node.remove(), 2800);
+  setTimeout(() => node.remove(), options.ttl || (options.action ? 5200 : 2800));
 }
 
 async function api(path, options = {}) {
@@ -80,6 +89,10 @@ async function act(fn, successMessage) {
     if (error.status === 409) {
       await boot(true);
       toast("Сначала создайте группу или вступите по коду");
+    } else if (/^Демо-режим/i.test(error.message || "")) {
+      toast("🔒 В демо это не сохраняется", {
+        action: { label: "Создать группу", act: "own-group" },
+      });
     } else {
       toast(error.message || "Не получилось");
     }
@@ -300,7 +313,10 @@ function quickGrid() {
     ["students", "👥", "Студенты", "Список группы, статусы"],
     ["schedule", "📅", "Расписание", "Пары, семестр, каникулы"],
     ["reports", "📊", "Отчёты", "Выгрузка для деканата"],
-    ["absences", "⚠️", "Прогулы", "Порог пропусков"],
+    ["absences", "⚠️", "Прогулы", "Кто на грани"],
+    ["journal", "🗓", "Журнал", "Посещаемость по дням"],
+    ["announcements", "📢", "Объявления", "Важное для группы"],
+    ["materials", "📚", "База знаний", "Файлы, методички и конспекты группы"],
   ];
   return `
     <div class="section-title">Быстрые действия</div>
@@ -555,25 +571,33 @@ function viewSettings() {
       </button>
     </div>
 
-    <div class="section-title">Ещё</div>
+    <div class="section-title">Приложение</div>
     <div class="row-list">
-      <button class="row-item" data-act="tab" data-go="announcements">
-        <div class="row-main"><div class="row-title">Объявления</div><div class="row-sub">Важное для группы</div></div>
+      <button class="row-item" data-act="referral">
+        <div class="row-main">
+          <div class="row-title">Пригласить друга</div>
+          <div class="row-sub">Друг создаст группу — вам обоим +30 дней</div>
+        </div>
+        <div class="row-value">+30 дней<span class="chev-r">›</span></div>
+      </button>
+    </div>
+
+    <div class="section-title">Помощь</div>
+    <div class="row-list">
+      <button class="row-item" data-act="help">
+        <div class="row-main"><div class="row-title">Как пользоваться</div></div>
         <span class="chev-r">›</span>
       </button>
-      <button class="row-item" data-act="tab" data-go="materials">
-        <div class="row-main"><div class="row-title">База знаний</div><div class="row-sub">Методички и конспекты</div></div>
+      <button class="row-item" data-act="support">
+        <div class="row-main"><div class="row-title">Поддержка</div><div class="row-sub">Ответим в приложении</div></div>
         <span class="chev-r">›</span>
       </button>
-      <button class="row-item" data-act="tab" data-go="journal">
-        <div class="row-main"><div class="row-title">Журнал</div><div class="row-sub">Отметки по дням</div></div>
+      <button class="row-item" data-act="docs">
+        <div class="row-main"><div class="row-title">Документы</div></div>
         <span class="chev-r">›</span>
       </button>
-      <button class="row-item" data-act="close">
-        <div class="row-main"><div class="row-title">Закрыть приложение</div></div>
-        <span class="chev-r">›</span>
-      </button>
-    </div>`;
+    </div>
+    <div class="app-footer">© 2026 «Староста бот»</div>`;
 }
 
 function viewReports() {
@@ -850,6 +874,26 @@ function sheetBody(sheet) {
         <li>На главной — живая сводка, в журнале — любой день, отчёт — в Excel.</li>
       </ol>
       <button class="btn btn-primary" style="margin-top:16px" data-act="sheet-close">Понятно</button>`;
+  }
+  if (sheet.type === "referral") {
+    return `
+      <div class="sheet-head"><div class="sheet-title">Пригласить друга</div><button class="icon-btn" data-act="sheet-close">✕</button></div>
+      <div class="sheet-sub">Отправьте другу-старосте ссылку на бота. Когда он создаст свою группу, вам обоим добавится 30 дней подписки.</div>
+      <button class="btn btn-primary" data-act="copy-invite">📋 Скопировать приглашение</button>
+    `;
+  }
+  if (sheet.type === "support") {
+    return `
+      <div class="sheet-head"><div class="sheet-title">Поддержка</div><button class="icon-btn" data-act="sheet-close">✕</button></div>
+      <div class="sheet-sub">Опишите проблему прямо в чате с ботом — ответим там же. Приложите скриншот экрана, если что-то отображается неверно.</div>
+      <button class="btn btn-primary" data-act="sheet-close">Понятно</button>`;
+  }
+  if (sheet.type === "docs") {
+    return `
+      <div class="sheet-head"><div class="sheet-title">Документы</div><button class="icon-btn" data-act="sheet-close">✕</button></div>
+      <div class="sheet-sub">Приложение обрабатывает только данные группы: ФИО студентов, расписание и отметки посещаемости. Данные хранятся на сервере сервиса и не передаются третьим лицам.</div>
+      <div class="sub-note">Демо-группа создаётся автоматически и не связана с реальными студентами.</div>
+      <button class="btn" style="margin-top:12px" data-act="sheet-close">Закрыть</button>`;
   }
   if (sheet.type === "invite") {
     return `
@@ -1240,6 +1284,9 @@ const actions = {
   },
   menu: () => openSheet("menu"),
   help: () => openSheet("help"),
+  referral: () => openSheet("referral"),
+  support: () => openSheet("support"),
+  docs: () => openSheet("docs"),
   "sheet-close": () => closeSheet(),
   "demo-info": () => openSheet("demo"),
 
